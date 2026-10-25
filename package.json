@@ -1,0 +1,31 @@
+{
+  "name": "gymlog-auth-slice",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "bcryptjs": "^2.4.3",
+    "next": "^15.2.0",
+    "nodemailer": "^10.0.13",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "resend": "^6.32.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.8",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "prisma": "^6.4.1",
+    "typescript": "^5.8.2"
+  }
+}

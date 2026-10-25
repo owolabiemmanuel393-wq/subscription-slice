@@ -1,0 +1,164 @@
+// Prisma Schema for GymLog Authentication Slice
+// Database provider is SQLite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// User model represents a registered user in GymLog.
+/// Stores credential information and verification status.
+model User {
+  /// Unique identifier for the user. Uses cuid for high collision resistance and sequential sorting.
+  id            String    @id @default(cuid())
+
+  /// Normalized lowercase email address.
+  /// Unique constraint prevents duplicate account registrations at the database level.
+  email         String    @unique
+
+  /// Display name of the user (e.g. John Doe).
+  name          String
+
+  /// Bcrypt hash of the user's password (salted with cost factor 12).
+  passwordHash  String
+
+  /// Tracks whether the user has successfully entered the 6-digit email verification code.
+  isEmailVerified Boolean @default(false)
+
+  /// Timestamp when the user account was created.
+  createdAt     DateTime  @default(now())
+
+  /// Timestamp automatically updated on any modification to user data.
+  updatedAt     DateTime  @updatedAt
+
+  // Relationships
+  sessions               Session[]
+  emailVerificationCodes EmailVerificationCode[]
+  passwordResetTokens    PasswordResetToken[]
+
+  // Indexes
+  @@index([email])
+}
+
+/// Session model represents an authenticated session.
+/// A random session token is issued as an HttpOnly cookie to the client,
+/// while ONLY the SHA-256 hash of that token is persisted in this table.
+model Session {
+  /// Unique identifier for the session record.
+  id               String   @id @default(cuid())
+
+  /// SHA-256 hash of the random session token issued to the client.
+  /// Unique constraint ensures one-to-one mapping for lookup and prevents collisions.
+  sessionTokenHash String   @unique
+
+  /// Foreign key referencing the authenticated User.
+  userId           String
+
+  /// Relation to User. When a user is deleted, all corresponding sessions cascade delete.
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The exact expiration timestamp of the session.
+  /// Verified on every incoming request to reject expired sessions.
+  expiresAt        DateTime
+
+  /// Timestamp when this session was created.
+  createdAt        DateTime @default(now())
+
+  // Indexes to ensure fast lookup by userId (e.g., when revoking all sessions)
+  // and by expiresAt (for cleanup jobs or index-assisted validation).
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// EmailVerificationCode model stores 6-digit email confirmation codes.
+/// Codes are stored as SHA-256 hashes so plaintext codes are never exposed if the database is read.
+model EmailVerificationCode {
+  /// Unique identifier for the verification code record.
+  id        String   @id @default(cuid())
+
+  /// SHA-256 hash of the 6-digit verification code.
+  codeHash  String
+
+  /// Foreign key referencing the User attempting email verification.
+  userId    String
+
+  /// Relation to User. Deleted automatically if the user is deleted.
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Number of failed verification attempts with this code.
+  /// Prevents brute-force guessing of the 6-digit code (e.g., maximum 5 attempts).
+  attempts  Int      @default(0)
+
+  /// Expiration timestamp of the verification code (e.g., 15 minutes).
+  /// Enforced directly in database queries so expired codes are never matched.
+  expiresAt DateTime
+
+  /// Timestamp when the code was created. Used to enforce the 60-second resend cooldown.
+  createdAt DateTime @default(now())
+
+  // Composite index on userId and expiresAt for fast retrieval of the latest active code.
+  @@index([userId, expiresAt])
+}
+
+/// PasswordResetToken model stores tokens generated when a user requests a password reset.
+/// Random tokens are delivered via link and stored hashed in the database.
+model PasswordResetToken {
+  /// Unique identifier for the password reset token record.
+  id        String    @id @default(cuid())
+
+  /// SHA-256 hash of the secure random reset token sent in the email link.
+  /// Unique constraint ensures quick indexed lookup and prevents token reuse.
+  tokenHash String    @unique
+
+  /// Foreign key referencing the User requesting the password reset.
+  userId    String
+
+  /// Relation to User. Deleted automatically if the user is deleted.
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Expiration timestamp (strictly 30 minutes from creation).
+  /// Database queries check that expiresAt > now().
+  expiresAt DateTime
+
+  /// Timestamp when the token was successfully used to reset password.
+  /// Nullable: remains null until consumed, enforcing single-use.
+  usedAt    DateTime?
+
+  /// Timestamp when this reset token was issued.
+  createdAt DateTime  @default(now())
+
+  // Indexes for quick lookup and token lifecycle management.
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// RateLimit model tracks request counters for sensitive auth endpoints:
+/// sign in, sign up, password reset request, and verification code resend.
+model RateLimit {
+  /// Unique identifier for the rate limit record.
+  id        String   @id @default(cuid())
+
+  /// Unique compound key representing the action and client identifier.
+  /// Example: "signin:192.168.1.5" or "resend:cuid_123"
+  key       String   @unique
+
+  /// Current number of requests made within the active window.
+  count     Int      @default(1)
+
+  /// Timestamp when the rate limit window resets.
+  /// If the current time is past resetAt, the window is refreshed.
+  resetAt   DateTime
+
+  /// Timestamp when the record was created.
+  createdAt DateTime @default(now())
+
+  /// Timestamp when the record was last updated.
+  updatedAt DateTime @updatedAt
+
+  // Composite index on key and resetAt for quick atomic checks and counter increments.
+  @@index([key, resetAt])
+}
